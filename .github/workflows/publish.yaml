@@ -1,10 +1,46 @@
 name: Publish Python 🐍 distribution 📦 to PyPI and TestPyPI
 
-on: push
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
 
 jobs:
+  check-src-changes:
+    name: Check for src/ changes
+    runs-on: ubuntu-latest
+    outputs:
+      run_build: ${{ steps.check.outputs.run_build }}
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+    - id: check
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "run_build=true" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        git fetch --tags
+        TAGS=$(git tag -l 'v*' --sort=-v:refname)
+        CURRENT="${{ github.ref_name }}"
+        PREV=$(echo "$TAGS" | sed -n '2p')
+        if [ -z "$PREV" ]; then
+          echo "run_build=true" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        FILES=$(git diff --name-only "$PREV" "$CURRENT" 2>/dev/null || true)
+        if echo "$FILES" | grep -q '^src/'; then
+          echo "run_build=true" >> $GITHUB_OUTPUT
+        else
+          echo "run_build=false" >> $GITHUB_OUTPUT
+        fi
+
   build:
     name: Build distribution 📦
+    needs: check-src-changes
+    if: needs.check-src-changes.outputs.run_build == 'true'
     runs-on: ubuntu-latest
 
     steps:
