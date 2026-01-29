@@ -26,17 +26,20 @@ uv add dateutil-gorman
 from datetime import date
 from dateutil_gorman import GormanDate, gregorian_to_gorman, gorman_to_gregorian, parse_gorman
 
-# Gregorian → Gorman
+# Gregorian → Gorman (day-of-year maps to Gorman month 1–13, day 1–28)
+g = gregorian_to_gorman(date(2024, 1, 1))
+print(g)  # 1 March 2024  (Gorman month 1 = March)
+
 g = gregorian_to_gorman(date(2024, 6, 15))
-print(g)  # 15 June 2024
+print(g)  # 27 Sextilis 2024  (Gregorian June 15 is day 167 → Gorman month 6 = Sextilis, day 27)
 
-# Gorman → Gregorian
+# Gorman → Gregorian (Gorman month 6 = Sextilis, day 15 → Gregorian day-of-year 155)
 d = gorman_to_gregorian(2024, 6, 15)
-print(d)  # 2024-06-15
+print(d)  # 2024-06-03
 
-# Parse a Gorman date string
+# Parse a Gorman date string (returns Gregorian datetime for that Gorman date)
 dt = parse_gorman("28 Gormanuary 2024")
-print(dt)  # 2024-02-28 00:00:00
+print(dt)  # 2024-12-29 00:00:00
 ```
 
 ## Examples
@@ -69,11 +72,11 @@ from dateutil_gorman import GormanDate
 
 # Parse a Gregorian ISO date (YYYY-MM-DD) and convert to Gorman
 g = GormanDate.fromisoformat("2024-07-04")
-print(g)  # 4 Quintilis 2024
+print(g)  # 18 September 2024  (Gregorian July 4 = day 186 → Gorman month 7 = September, day 18)
 
 # From proleptic Gregorian ordinal (same as datetime.date)
 g = GormanDate.fromordinal(738000)
-print(g.to_gregorian())  # 2024-01-15
+print(g.to_gregorian())  # 2021-07-29
 ```
 
 ### Gorman week calendar
@@ -83,17 +86,17 @@ Each Gorman month has 4 weeks; the year has 52 weeks (intermission days are outs
 ```python
 from dateutil_gorman import GormanDate
 
-g = GormanDate(2024, 6, 15)
+g = GormanDate(2024, 6, 15)  # 15 Sextilis 2024 (Gorman month 6 = Sextilis)
 year, week, weekday = g.gorman_week_calendar()
-print(f"Year {year}, week {week}, weekday {weekday}")  # Year 2024, week 21, weekday 6
+print(f"Year {year}, week {week}, weekday {weekday}")  # Year 2024, week 23, weekday 1
 
-# Week of month (1–4) and week of year (1–52)
+# Week of month (1 to 4) and week of year (1 to 52)
 print(g.week_of_month())   # 3
-print(g.week_of_year())    # 21
+print(g.week_of_year())    # 23
 
 # Build a GormanDate from (year, week, weekday)
-g2 = GormanDate.from_gorman_week_calendar(2024, 21, 6)
-print(g2)  # 15 June 2024
+g2 = GormanDate.from_gorman_week_calendar(2024, 23, 1)
+print(g2)  # 15 Sextilis 2024
 ```
 
 ### Immutable updates with replace
@@ -101,27 +104,29 @@ print(g2)  # 15 June 2024
 ```python
 from dateutil_gorman import GormanDate
 
-g = GormanDate(2024, 6, 15)
+g = GormanDate(2024, 6, 15)  # 15 Sextilis 2024
 g2 = g.replace(day=1)
-print(g2)  # 1 June 2024
+print(g2)  # 1 Sextilis 2024
 # g is unchanged
-print(g)   # 15 June 2024
+print(g)   # 15 Sextilis 2024
 ```
 
 ### Parsing Gorman date strings
 
+`parse_gorman` parses a **Gorman** date string and returns the equivalent **Gregorian** datetime.
+
 ```python
 from dateutil_gorman import parse_gorman
 
-# Day month year
-parse_gorman("15 June 2024")           # 2024-06-15 00:00:00
+# Gorman "15 June 2024" = 15th of Gorman month June (month 4) → Gregorian April 8, 2024
+parse_gorman("15 June 2024")           # 2024-04-08 00:00:00
 
-# Month day, year
-parse_gorman("June 15, 2024")          # 2024-06-15 00:00:00
+# Month day, year (same Gorman date)
+parse_gorman("June 15, 2024")          # 2024-04-08 00:00:00
 
 # With time
-parse_gorman("15 June 2024 14:30")     # 2024-06-15 14:30:00
-parse_gorman("15 June 2024 14:30:45") # 2024-06-15 14:30:45
+parse_gorman("15 June 2024 14:30")     # 2024-04-08 14:30:00
+parse_gorman("15 June 2024 14:30:45") # 2024-04-08 14:30:45
 
 # Intermission
 parse_gorman("Intermission 1 2024")    # 2024-12-30 00:00:00 (leap year)
@@ -154,7 +159,7 @@ print(g.to_gregorian_datetime())  # 2024-06-15 14:30:00
   - `gorman_week_calendar()` — returns `(year, week, weekday)`
   - `replace(...)` — return a new instance with fields updated
   - `weekday()`, `isoweekday()`, `week_of_month()`, `week_of_year()`, `toordinal()`
-  - `__str__` — e.g. `"15 June 2024"`
+  - `__str__` — e.g. `"15 Sextilis 2024"` (Gorman month 6 = Sextilis)
 
 - **`Intermission`** — One intermission day (`year`, `day` 1 or 2, optional `time`). Immutable. Methods include:
   - `to_gregorian()` / `to_gregorian_datetime()`
@@ -169,8 +174,8 @@ print(g.to_gregorian_datetime())  # 2024-06-15 14:30:00
 
 ### Parsing
 
-- **`parse_gorman(date_string)`** — Parse a Gorman date string and return a Gregorian `datetime`. Supports:
-  - `"15 June 2024"`, `"June 15, 2024"`
+- **`parse_gorman(date_string)`** — Parse a **Gorman** date string and return the equivalent Gregorian `datetime`. Supports:
+  - `"15 June 2024"` (15th of Gorman June → Gregorian April 8, 2024), `"June 15, 2024"`
   - Optional time: `"15 June 2024 14:30"`
   - `"Intermission 1 2024"`, `"Intermission 2 2024"` (leap years only for day 2)
 
