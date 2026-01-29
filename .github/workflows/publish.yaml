@@ -17,6 +17,13 @@ jobs:
         VERSION="${GITHUB_REF_NAME#v}"
         echo "Package version set to $VERSION"
         sed -i 's/^version = .*/version = "'"$VERSION"'"/' pyproject.toml
+    - name: Set dev version for TestPyPI
+      if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      run: |
+        BASE=$(grep '^version = ' pyproject.toml | sed -E 's/version = "([^"]+)".*/\1/; s/\.dev.*//; s/\+.*//; s/ *$//')
+        DEV_VERSION="${BASE}.dev${{ github.run_number }}"
+        echo "Package version set to $DEV_VERSION"
+        sed -i 's/^version = .*/version = "'"$DEV_VERSION"'"/' pyproject.toml
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
