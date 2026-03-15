@@ -66,6 +66,9 @@ def test_gorman_date_is_immutable() -> None:
 
 def test_gorman_date_validates_month_and_day_ranges() -> None:
     """GormanDate should reject invalid month/day values."""
+    with pytest.raises(ValueError, match="Year must be greater than or equal to 1"):
+        GormanDate(year=0, month=1, day=1)
+
     with pytest.raises(ValueError, match="Month must be between 1 and 13"):
         GormanDate(year=2024, month=0, day=1)
 
@@ -83,6 +86,9 @@ def test_intermission_is_immutable() -> None:
 
 def test_intermission_validates_day_rules() -> None:
     """Intermission should reject impossible day values."""
+    with pytest.raises(ValueError, match="Year must be greater than or equal to 1"):
+        Intermission(year=0, day=1)
+
     with pytest.raises(ValueError, match="Intermission day must be 1 or 2"):
         Intermission(year=2024, day=3)
 

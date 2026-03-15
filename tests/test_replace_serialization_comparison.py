@@ -77,6 +77,15 @@ def test_from_gorman_week_calendar() -> None:
     assert g2.week_of_year() == 52 and g2.isoweekday() == 7
 
 
+def test_from_gorman_week_calendar_rejects_invalid_values() -> None:
+    """GormanDate.from_gorman_week_calendar() rejects invalid week tuples."""
+    with pytest.raises(ValueError, match="Week must be between 1 and 52"):
+        GormanDate.from_gorman_week_calendar(2024, 0, 1)
+
+    with pytest.raises(ValueError, match="Weekday must be between 1 and 7"):
+        GormanDate.from_gorman_week_calendar(2024, 1, 0)
+
+
 def test_gorman_week_calendar_round_trip() -> None:
     """GormanDate gorman_week_calendar then from_gorman_week_calendar round-trips."""
     g = GormanDate(2024, 5, 15)
@@ -140,5 +149,17 @@ def test_comparison_with_wrong_type_returns_not_implemented() -> None:
     """Comparison with non-GormanDate/Intermission should return NotImplemented."""
     g = GormanDate(2024, 1, 1)
     assert g.__lt__(None) is NotImplemented
+    assert g.__le__(None) is NotImplemented
+    assert g.__gt__(None) is NotImplemented
+    assert g.__ge__(None) is NotImplemented
     assert g.__lt__(2024) is NotImplemented
     assert g.__lt__("2024-01-01") is NotImplemented
+
+
+def test_intermission_comparison_with_wrong_type_returns_not_implemented() -> None:
+    """Intermission comparisons with other types should return NotImplemented."""
+    intermission = Intermission(2024, 1)
+    assert intermission.__lt__(None) is NotImplemented
+    assert intermission.__le__(None) is NotImplemented
+    assert intermission.__gt__(None) is NotImplemented
+    assert intermission.__ge__(None) is NotImplemented

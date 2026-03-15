@@ -1,4 +1,4 @@
-name: Publish Python 🐍 distribution 📦 to PyPI and TestPyPI
+name: Publish Python distributions
 
 on:
   push:
@@ -6,121 +6,114 @@ on:
       - "v*"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  check-src-changes:
-    name: Check for src/ changes
-    runs-on: ubuntu-latest
-    outputs:
-      run_build: ${{ steps.check.outputs.run_build }}
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-    - id: check
-      run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "run_build=true" >> $GITHUB_OUTPUT
-          exit 0
-        fi
-        git fetch --tags
-        TAGS=$(git tag -l 'v*' --sort=-v:refname)
-        CURRENT="${{ github.ref_name }}"
-        PREV=$(echo "$TAGS" | sed -n '2p')
-        if [ -z "$PREV" ]; then
-          echo "run_build=true" >> $GITHUB_OUTPUT
-          exit 0
-        fi
-        FILES=$(git diff --name-only "$PREV" "$CURRENT" 2>/dev/null || true)
-        if echo "$FILES" | grep -q '^src/'; then
-          echo "run_build=true" >> $GITHUB_OUTPUT
-        else
-          echo "run_build=false" >> $GITHUB_OUTPUT
-        fi
-
   build:
-    name: Build distribution 📦
-    needs: check-src-changes
-    if: needs.check-src-changes.outputs.run_build == 'true'
+    name: Build and validate distribution
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-    - uses: actions/checkout@v6
-      with:
-        persist-credentials: false
-    - name: Set version from tag
-      if: startsWith(github.ref, 'refs/tags/')
-      run: |
-        VERSION="${GITHUB_REF_NAME#v}"
-        echo "Package version set to $VERSION"
-        sed -i 's/^version = .*/version = "'"$VERSION"'"/' pyproject.toml
-    - name: Set dev version for TestPyPI
-      if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-      run: |
-        BASE=$(grep '^version = ' pyproject.toml | sed -E 's/version = "([^"]+)".*/\1/; s/\.dev.*//; s/\+.*//; s/ *$//')
-        DEV_VERSION="${BASE}.dev${{ github.run_number }}"
-        echo "Package version set to $DEV_VERSION"
-        sed -i 's/^version = .*/version = "'"$DEV_VERSION"'"/' pyproject.toml
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: "3.x"
-    - name: Install pypa/build
-      run: >-
-        python3 -m
-        pip install
-        build
-        --user
-    - name: Build a binary wheel and a source tarball
-      run: python3 -m build
-    - name: Store the distribution packages
-      uses: actions/upload-artifact@v5
-      with:
-        name: python-package-distributions
-        path: dist/
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@e4db8464a088ece1b920f60402e813ea4de65b8f # v4
+
+      - name: Build wheel and source distribution
+        run: uv build
+
+      - name: Validate package metadata
+        run: uv tool run twine check dist/*
+
+      - name: Smoke test built wheel
+        run: |
+          python -m venv .venv-smoke
+          . .venv-smoke/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.whl
+          python -c "from datetime import date; from dateutil_gorman import GormanDate, gregorian_to_gorman; assert str(GormanDate(2024, 1, 1)) == '1 March 2024'; assert str(gregorian_to_gorman(date(2024, 1, 1))) == '1 March 2024'"
+
+      - name: Smoke test source distribution
+        run: |
+          python -m venv .venv-sdist
+          . .venv-sdist/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.tar.gz
+          python -c "from datetime import date; from dateutil_gorman import gregorian_to_gorman; assert str(gregorian_to_gorman(date(2024, 1, 1))) == '1 March 2024'"
+
+      - name: Store built distributions
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
 
   publish-to-pypi:
-    name: >-
-      Publish Python 🐍 distribution 📦 to PyPI
-    if: startsWith(github.ref, 'refs/tags/')  # only publish to PyPI on tag pushes
+    name: Publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/v')
     needs:
-    - build
+      - build
     runs-on: ubuntu-latest
     environment:
+      # Configure required reviewers on the "pypi" GitHub environment to
+      # enforce manual approval before production publishing.
       name: pypi
       url: https://pypi.org/p/dateutil-gorman
     permissions:
-      id-token: write  # IMPORTANT: mandatory for trusted publishing
+      contents: read
+      id-token: write
 
     steps:
-    - name: Download all the dists
-      uses: actions/download-artifact@v6
-      with:
-        name: python-package-distributions
-        path: dist/
-    - name: Publish distribution 📦 to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Download built distributions
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
+        with:
+          packages-dir: dist/
+          print-hash: true
 
   publish-to-testpypi:
-    name: Publish Python 🐍 distribution 📦 to TestPyPI
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    name: Publish to TestPyPI
+    if: github.event_name == 'workflow_dispatch'
     needs:
-    - build
+      - build
     runs-on: ubuntu-latest
-
     environment:
       name: testpypi
       url: https://test.pypi.org/p/dateutil-gorman
-
     permissions:
-      id-token: write  # IMPORTANT: mandatory for trusted publishing
+      contents: read
+      id-token: write
 
     steps:
-    - name: Download all the dists
-      uses: actions/download-artifact@v6
-      with:
-        name: python-package-distributions
-        path: dist/
-    - name: Publish distribution 📦 to TestPyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        repository-url: https://test.pypi.org/legacy/
+      - name: Download built distributions
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish distribution to TestPyPI
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
+          print-hash: true
+          skip-existing: true
