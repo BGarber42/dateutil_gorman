@@ -1,7 +1,9 @@
 """Tests for replace(), fromisoformat (ISO 8601 conformant), round-trip/symmetry, and comparisons."""
 
 from datetime import time
+
 import pytest
+
 from dateutil_gorman.types import GormanDate, Intermission
 
 
@@ -21,6 +23,7 @@ def test_gorman_date_replace_month_day_time() -> None:
     g2 = g.replace(month=13, day=28, time=time(23, 59))
     assert g2.month == 13 and g2.day == 28 and g2.time == time(23, 59)
     assert g.time == time(12, 0)
+    assert g.replace(time=None).time is None
 
 
 def test_intermission_replace() -> None:
@@ -30,6 +33,9 @@ def test_intermission_replace() -> None:
     assert i2.year == 2023 and i2.day == 1
     i3 = i.replace(day=2)
     assert i3.year == 2024 and i3.day == 2
+    assert (
+        Intermission(year=2024, day=1, time=time(8, 0)).replace(time=None).time is None
+    )
 
 
 def test_gorman_date_fromisoformat_accepts_iso8601_gregorian() -> None:

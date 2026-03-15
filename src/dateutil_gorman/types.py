@@ -1,286 +1,393 @@
-"""Types for representing Gorman calendar dates."""
+"""Immutable value objects representing Gorman calendar dates."""
 
+from __future__ import annotations
+
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time
-from typing import Optional, Union, cast
+from typing import cast
 
-# Type alias so replace(time=...) does not shadow datetime.time
+from dateutil_gorman.constants import GORMAN_MONTHS
+
+LOGGER = logging.getLogger(__name__)
 _Time = time
+_MISSING = object()
 
 
-@dataclass(frozen=True)
+def _comparison_ordinal(other: object) -> int | None:
+    """Return an ordinal for supported comparison operands."""
+    if isinstance(other, (GormanDate, Intermission)):
+        return other.toordinal()
+    return None
+
+
+@dataclass(frozen=True, slots=True)
 class GormanDate:
-    """Represents a date in the Gorman calendar (within a month)."""
+    """Represent a date in one of the 13 standard Gorman months.
+
+    Attributes:
+        year: Gorman year value.
+        month: Gorman month number in the inclusive range ``1`` to ``13``.
+        day: Gorman day number in the inclusive range ``1`` to ``28``.
+        time: Optional preserved time component when the value originated from a
+            Gregorian ``datetime``.
+    """
 
     year: int
-    month: int  # 1-13
-    day: int  # 1-28
-    time: Optional[time] = None  # Optional time component if converted from datetime
+    month: int
+    day: int
+    time: _Time | None = None
+
+    def __post_init__(self) -> None:
+        """Validate field values after dataclass initialization."""
+        if self.year < 1:
+            raise ValueError(
+                f"Year must be greater than or equal to 1, got {self.year}"
+            )
+        if not 1 <= self.month <= len(GORMAN_MONTHS):
+            raise ValueError(f"Month must be between 1 and 13, got {self.month}")
+        if not 1 <= self.day <= 28:
+            raise ValueError(f"Day must be between 1 and 28, got {self.day}")
 
     def replace(
         self,
         *,
-        year: Optional[int] = None,
-        month: Optional[int] = None,
-        day: Optional[int] = None,
-        time: Optional[_Time] = None,
-    ) -> "GormanDate":
-        """Return a new GormanDate with the given fields replaced (immutable update)."""
+        year: int | None = None,
+        month: int | None = None,
+        day: int | None = None,
+        time: _Time | None | object = _MISSING,
+    ) -> GormanDate:
+        """Return a copy with selected fields replaced.
+
+        Args:
+            year: Replacement year value.
+            month: Replacement month value.
+            day: Replacement day value.
+            time: Replacement time value. Pass ``None`` to clear a preserved
+                time component.
+
+        Returns:
+            A new ``GormanDate`` instance.
+        """
+        new_time = self.time if time is _MISSING else cast(_Time | None, time)
         return GormanDate(
-            year=year if year is not None else self.year,
-            month=month if month is not None else self.month,
-            day=day if day is not None else self.day,
-            time=time if time is not None else self.time,
+            year=self.year if year is None else year,
+            month=self.month if month is None else month,
+            day=self.day if day is None else day,
+            time=new_time,
         )
 
     @classmethod
-    def fromisoformat(cls, s: str) -> "GormanDate":
-        """Parse an ISO 8601 (Gregorian) date string and return the corresponding GormanDate.
+    def fromisoformat(cls, s: str) -> GormanDate:
+        """Build a ``GormanDate`` from a Gregorian ISO calendar date.
 
-        Accepts only conformant ISO 8601 calendar dates (YYYY-MM-DD, Gregorian).
-        Raises ValueError if the string is invalid or if that date is an intermission day.
+        Args:
+            s: Gregorian ISO 8601 date string in ``YYYY-MM-DD`` form.
+
+        Returns:
+            ``GormanDate`` matching the Gregorian input.
+
+        Raises:
+            ValueError: If the string is invalid or maps to an intermission day.
         """
         from dateutil_gorman.conversion import gregorian_to_gorman
+
         gregorian = date.fromisoformat(s.strip())
         result = gregorian_to_gorman(gregorian)
-        if not isinstance(result, GormanDate):
-            raise ValueError(f"Date {s!r} is an intermission day in the Gorman calendar")
+        if not isinstance(result, cls):
+            raise ValueError(
+                f"Date {s!r} is an intermission day in the Gorman calendar"
+            )
         return result
 
-    def gorman_week_calendar(self) -> tuple[int, int, int]:
-        """Return Gorman calendar tuple (year, week of year, weekday).
-
-        Week is 1-52 (Gorman year has 13 months × 4 weeks), weekday is 1 (Monday)
-        to 7 (Sunday). For ISO 8601 week date use to_gregorian().isocalendar().
-        """
-        return (self.year, self.week_of_year(), self.isoweekday())
-
     @classmethod
-    def from_gorman_week_calendar(cls, year: int, week: int, weekday: int) -> "GormanDate":
-        """Return GormanDate from Gorman calendar (year, week 1-52, weekday 1-7)."""
-        if week < 1 or week > 52:
-            raise ValueError(f"Week must be 1-52, got {week}")
-        if weekday < 1 or weekday > 7:
-            raise ValueError(f"Weekday must be 1-7, got {weekday}")
-        day_of_year = (week - 1) * 7 + weekday
-        if day_of_year < 1 or day_of_year > 364:
-            raise ValueError(f"Invalid (week, weekday) for Gorman year: ({week}, {weekday})")
+    def from_gorman_week_calendar(
+        cls, year: int, week: int, weekday: int
+    ) -> GormanDate:
+        """Build a date from the Gorman week calendar.
+
+        Args:
+            year: Gorman year.
+            week: Gorman week of year in the inclusive range ``1`` to ``52``.
+            weekday: Weekday in the inclusive range ``1`` to ``7`` where
+                Monday is ``1``.
+
+        Returns:
+            ``GormanDate`` matching the provided week tuple.
+
+        Raises:
+            ValueError: If ``week`` or ``weekday`` is out of range.
+        """
+        if not 1 <= week <= 52:
+            raise ValueError(f"Week must be between 1 and 52, got {week}")
+        if not 1 <= weekday <= 7:
+            raise ValueError(f"Weekday must be between 1 and 7, got {weekday}")
+
+        day_of_year = ((week - 1) * 7) + weekday
         month = ((day_of_year - 1) // 28) + 1
         day = ((day_of_year - 1) % 28) + 1
         return cls(year=year, month=month, day=day)
 
+    @classmethod
+    def fromordinal(cls, ordinal: int) -> GormanDate:
+        """Build a ``GormanDate`` from a proleptic Gregorian ordinal.
+
+        Args:
+            ordinal: Ordinal compatible with ``datetime.date.fromordinal``.
+
+        Returns:
+            ``GormanDate`` corresponding to the ordinal.
+
+        Raises:
+            ValueError: If the ordinal maps to an intermission day.
+        """
+        from dateutil_gorman.conversion import gregorian_to_gorman
+
+        gregorian = date.fromordinal(ordinal)
+        result = gregorian_to_gorman(gregorian)
+        if not isinstance(result, cls):
+            raise ValueError(
+                "Ordinal "
+                f"{ordinal} corresponds to an intermission day, not a Gorman "
+                "date"
+            )
+        return result
+
+    def gorman_week_calendar(self) -> tuple[int, int, int]:
+        """Return the Gorman week-calendar tuple.
+
+        Returns:
+            Tuple of ``(year, week_of_year, weekday)`` where weekday follows
+            ISO numbering with Monday as ``1`` and Sunday as ``7``.
+        """
+        return self.year, self.week_of_year(), self.isoweekday()
+
+    def to_gregorian(self) -> date:
+        """Convert this Gorman date to a Gregorian ``date``."""
+        from dateutil_gorman.conversion import gorman_to_gregorian
+
+        return gorman_to_gregorian(self.year, self.month, self.day)
+
+    def to_gregorian_datetime(self) -> datetime:
+        """Convert this value to a Gregorian ``datetime``.
+
+        Returns:
+            Gregorian ``datetime`` preserving the stored time when present, or
+            midnight otherwise.
+        """
+        time_component = time.min if self.time is None else self.time
+        return datetime.combine(self.to_gregorian(), time_component)
+
+    def weekday(self) -> int:
+        """Return the weekday using ``datetime.date.weekday`` semantics."""
+        return self.to_gregorian().weekday()
+
+    def isoweekday(self) -> int:
+        """Return the ISO weekday using ``datetime.date.isoweekday`` semantics."""
+        return self.to_gregorian().isoweekday()
+
+    def week_of_month(self) -> int:
+        """Return the week number within the Gorman month."""
+        return ((self.day - 1) // 7) + 1
+
+    def week_of_year(self) -> int:
+        """Return the week number within the Gorman year."""
+        day_of_year = ((self.month - 1) * 28) + self.day
+        return ((day_of_year - 1) // 7) + 1
+
+    def toordinal(self) -> int:
+        """Return the matching proleptic Gregorian ordinal."""
+        return self.to_gregorian().toordinal()
+
     def __lt__(self, other: object) -> bool:
-        if type(other) not in (GormanDate, Intermission):
+        """Compare values using Gregorian ordinals."""
+        other_ordinal = _comparison_ordinal(other)
+        if other_ordinal is None:
             return NotImplemented
-        return self.toordinal() < cast(Union[GormanDate, Intermission], other).toordinal()
+        return self.toordinal() < other_ordinal
 
     def __le__(self, other: object) -> bool:
-        if type(other) not in (GormanDate, Intermission):
+        """Compare values using Gregorian ordinals."""
+        other_ordinal = _comparison_ordinal(other)
+        if other_ordinal is None:
             return NotImplemented
-        return self.toordinal() <= cast(Union[GormanDate, Intermission], other).toordinal()
+        return self.toordinal() <= other_ordinal
 
     def __gt__(self, other: object) -> bool:
-        if type(other) not in (GormanDate, Intermission):
+        """Compare values using Gregorian ordinals."""
+        other_ordinal = _comparison_ordinal(other)
+        if other_ordinal is None:
             return NotImplemented
-        return self.toordinal() > cast(Union[GormanDate, Intermission], other).toordinal()
+        return self.toordinal() > other_ordinal
 
     def __ge__(self, other: object) -> bool:
-        if type(other) not in (GormanDate, Intermission):
+        """Compare values using Gregorian ordinals."""
+        other_ordinal = _comparison_ordinal(other)
+        if other_ordinal is None:
             return NotImplemented
-        return self.toordinal() >= cast(Union[GormanDate, Intermission], other).toordinal()
+        return self.toordinal() >= other_ordinal
 
     def __str__(self) -> str:
-        """Return human-readable string representation, e.g. '15 March 2024'."""
-        from dateutil_gorman.constants import GORMAN_MONTHS
+        """Return a human-readable representation."""
         month_name = GORMAN_MONTHS[self.month - 1]
         return f"{self.day} {month_name} {self.year}"
 
-    def to_gregorian(self) -> date:
-        """Convert this Gorman date to a Gregorian date."""
-        from dateutil_gorman.conversion import gorman_to_gregorian
-        return gorman_to_gregorian(self.year, self.month, self.day)
-    
-    def to_gregorian_datetime(self) -> datetime:
-        """Convert this Gorman date to a Gregorian datetime.
-        
-        If time was preserved from the original datetime, it will be included.
-        Otherwise, returns midnight (00:00:00).
-        """
-        gregorian_date = self.to_gregorian()
-        time_component = self.time if self.time is not None else time.min
-        return datetime.combine(gregorian_date, time_component)
-    
-    def weekday(self) -> int:
-        """Return the day of the week, Monday=0, Sunday=6 (same as datetime.date)."""
-        day_of_year = (self.month - 1) * 28 + self.day
-        ordinal = date(self.year, 1, 1).toordinal() + day_of_year - 1
-        return (ordinal + 6) % 7
 
-    def isoweekday(self) -> int:
-        """Return the day of the week, Monday=1, Sunday=7 (same as datetime.date)."""
-        return self.weekday() + 1
-
-    def week_of_month(self) -> int:
-        """Return the week number within the Gorman month (1-4).
-        
-        Each Gorman month has exactly 28 days (4 weeks), so this returns
-        which week of the month this day falls in.
-        
-        Returns:
-            Integer from 1 to 4
-        """
-        return ((self.day - 1) // 7) + 1
-    
-    def week_of_year(self) -> int:
-        """Return the week number within the Gorman year (1-52).
-        
-        The Gorman year has 13 months × 4 weeks = 52 weeks in the months.
-        Intermission days are not part of any week.
-        
-        Returns:
-            Integer from 1 to 52
-        """
-        day_of_year = (self.month - 1) * 28 + self.day
-        return ((day_of_year - 1) // 7) + 1
-    
-    def toordinal(self) -> int:
-        """Return the proleptic Gregorian ordinal of the date.
-        
-        The ordinal is the number of days since January 1 of year 1.
-        This uses the same ordinal system as Python's date.toordinal().
-        
-        Returns:
-            Integer representing the ordinal
-        """
-        return self.to_gregorian().toordinal()
-    
-    @classmethod
-    def fromordinal(cls, ordinal: int) -> "GormanDate":
-        """Return the Gorman date corresponding to the proleptic Gregorian ordinal.
-        
-        The ordinal is the number of days since January 1 of year 1.
-        This uses the same ordinal system as Python's date.fromordinal().
-        
-        Args:
-            ordinal: Proleptic Gregorian ordinal
-        
-        Returns:
-            GormanDate corresponding to the ordinal
-        """
-        from dateutil_gorman.conversion import gregorian_to_gorman
-        gregorian = date.fromordinal(ordinal)
-        result = gregorian_to_gorman(gregorian)
-        if not isinstance(result, GormanDate):
-            raise ValueError(f"Ordinal {ordinal} corresponds to an intermission day, not a Gorman date")
-        return result
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Intermission:
-    """Represents one intermission day (not in any month or week).
+    """Represent one intermission day outside the normal Gorman months.
 
-    Each instance is exactly one 24-hour day. In leap years there are two
-    separate intermission days: Intermission 1 and Intermission 2 (never
-    modeled as a single 48-hour day).
+    Attributes:
+        year: Gorman year value.
+        day: Intermission day number. ``2`` is only valid in leap years.
+        time: Optional preserved time component when the value originated from a
+            Gregorian ``datetime``.
     """
 
     year: int
-    day: int  # 1 or 2 (2 only in leap years); each is a separate 24h day
-    time: Optional[time] = None  # Optional time component if converted from datetime
+    day: int
+    time: _Time | None = None
+
+    def __post_init__(self) -> None:
+        """Validate intermission field values."""
+        from dateutil_gorman.conversion import _is_leap_year
+
+        if self.year < 1:
+            raise ValueError(
+                f"Year must be greater than or equal to 1, got {self.year}"
+            )
+        if self.day not in (1, 2):
+            raise ValueError(f"Intermission day must be 1 or 2, got {self.day}")
+        if self.day == 2 and not _is_leap_year(self.year):
+            raise ValueError(
+                "Intermission day 2 is only valid in leap years, "
+                f"{self.year} is not a leap year"
+            )
 
     def replace(
         self,
         *,
-        year: Optional[int] = None,
-        day: Optional[int] = None,
-        time: Optional[_Time] = None,
-    ) -> "Intermission":
-        """Return a new Intermission with the given fields replaced (immutable update)."""
+        year: int | None = None,
+        day: int | None = None,
+        time: _Time | None | object = _MISSING,
+    ) -> Intermission:
+        """Return a copy with selected fields replaced.
+
+        Args:
+            year: Replacement year value.
+            day: Replacement intermission day.
+            time: Replacement time value. Pass ``None`` to clear a preserved
+                time component.
+
+        Returns:
+            A new ``Intermission`` instance.
+        """
+        new_time = self.time if time is _MISSING else cast(_Time | None, time)
         return Intermission(
-            year=year if year is not None else self.year,
-            day=day if day is not None else self.day,
-            time=time if time is not None else self.time,
+            year=self.year if year is None else year,
+            day=self.day if day is None else day,
+            time=new_time,
         )
 
     @classmethod
-    def fromordinal(cls, ordinal: int) -> "Intermission":
-        """Return the Intermission corresponding to the proleptic Gregorian ordinal.
+    def fromordinal(cls, ordinal: int) -> Intermission:
+        """Build an ``Intermission`` from a proleptic Gregorian ordinal.
 
-        Raises ValueError if the ordinal corresponds to a Gorman date (not intermission).
+        Args:
+            ordinal: Ordinal compatible with ``datetime.date.fromordinal``.
+
+        Returns:
+            ``Intermission`` corresponding to the ordinal.
+
+        Raises:
+            ValueError: If the ordinal maps to a standard Gorman month/day.
         """
         from dateutil_gorman.conversion import gregorian_to_gorman
+
         gregorian = date.fromordinal(ordinal)
         result = gregorian_to_gorman(gregorian)
-        if not isinstance(result, Intermission):
-            raise ValueError(f"Ordinal {ordinal} corresponds to a Gorman date, not an intermission day")
+        if not isinstance(result, cls):
+            raise ValueError(
+                "Ordinal "
+                f"{ordinal} corresponds to a Gorman date, not an intermission "
+                "day"
+            )
         return result
 
-    def __str__(self) -> str:
-        """Return human-readable string representation, e.g. 'Intermission 1 2024'."""
-        return f"Intermission {self.day} {self.year}"
-
-    def __lt__(self, other: object) -> bool:
-        if type(other) not in (GormanDate, Intermission):
-            return NotImplemented
-        return self.toordinal() < cast(Union[GormanDate, Intermission], other).toordinal()
-
-    def __le__(self, other: object) -> bool:
-        if type(other) not in (GormanDate, Intermission):
-            return NotImplemented
-        return self.toordinal() <= cast(Union[GormanDate, Intermission], other).toordinal()
-
-    def __gt__(self, other: object) -> bool:
-        if type(other) not in (GormanDate, Intermission):
-            return NotImplemented
-        return self.toordinal() > cast(Union[GormanDate, Intermission], other).toordinal()
-
-    def __ge__(self, other: object) -> bool:
-        if type(other) not in (GormanDate, Intermission):
-            return NotImplemented
-        return self.toordinal() >= cast(Union[GormanDate, Intermission], other).toordinal()
-
     def to_gregorian(self) -> date:
-        """Convert this intermission day to a Gregorian date."""
+        """Convert this intermission day to a Gregorian ``date``."""
         from dateutil_gorman.conversion import intermission_to_gregorian
+
         return intermission_to_gregorian(self.year, self.day)
-    
+
     def to_gregorian_datetime(self) -> datetime:
-        """Convert this intermission day to a Gregorian datetime.
-        
-        If time was preserved from the original datetime, it will be included.
-        Otherwise, returns midnight (00:00:00).
+        """Convert this value to a Gregorian ``datetime``.
+
+        Returns:
+            Gregorian ``datetime`` preserving the stored time when present, or
+            midnight otherwise.
         """
-        gregorian_date = self.to_gregorian()
-        time_component = self.time if self.time is not None else time.min
-        return datetime.combine(gregorian_date, time_component)
-    
+        time_component = time.min if self.time is None else self.time
+        return datetime.combine(self.to_gregorian(), time_component)
+
     def weekday(self) -> int:
-        """Raise ValueError; Intermission has no weekday—it is not part of the Monday–Sunday week."""
-        raise ValueError("Intermission has no weekday; it is not part of the Monday–Sunday week")
+        """Raise because intermission days are outside the weekly cycle."""
+        raise ValueError(
+            "Intermission has no weekday; it is not part of the Monday-Sunday week"
+        )
 
     def isoweekday(self) -> int:
-        """Raise ValueError; Intermission has no weekday—it is not part of the Monday–Sunday week."""
-        raise ValueError("Intermission has no weekday; it is not part of the Monday–Sunday week")
+        """Raise because intermission days are outside the weekly cycle."""
+        raise ValueError(
+            "Intermission has no weekday; it is not part of the Monday-Sunday week"
+        )
 
     def isocalendar(self) -> tuple[int, int, int]:
-        """Raise ValueError; Intermission has no week or weekday—it is not part of any week."""
-        raise ValueError("Intermission has no week or weekday; it is not part of any week")
-    
+        """Raise because intermission days are outside the weekly cycle."""
+        raise ValueError(
+            "Intermission has no week or weekday; it is not part of any week"
+        )
+
     def week_of_month(self) -> int:
-        """Raise ValueError; intermission days are not part of any month or week."""
+        """Raise because intermission days do not belong to a month."""
         raise ValueError("Intermission days are not part of any Gorman month or week")
-    
+
     def week_of_year(self) -> int:
-        """Raise ValueError; intermission days are not part of any month or week."""
+        """Raise because intermission days do not belong to the weekly calendar."""
         raise ValueError("Intermission days are not part of any Gorman month or week")
-    
+
     def toordinal(self) -> int:
-        """Return the proleptic Gregorian ordinal of the date.
-        
-        The ordinal is the number of days since January 1 of year 1.
-        This uses the same ordinal system as Python's date.toordinal().
-        
-        Returns:
-            Integer representing the ordinal
-        """
+        """Return the matching proleptic Gregorian ordinal."""
         return self.to_gregorian().toordinal()
+
+    def __lt__(self, other: object) -> bool:
+        """Compare values using Gregorian ordinals."""
+        other_ordinal = _comparison_ordinal(other)
+        if other_ordinal is None:
+            return NotImplemented
+        return self.toordinal() < other_ordinal
+
+    def __le__(self, other: object) -> bool:
+        """Compare values using Gregorian ordinals."""
+        other_ordinal = _comparison_ordinal(other)
+        if other_ordinal is None:
+            return NotImplemented
+        return self.toordinal() <= other_ordinal
+
+    def __gt__(self, other: object) -> bool:
+        """Compare values using Gregorian ordinals."""
+        other_ordinal = _comparison_ordinal(other)
+        if other_ordinal is None:
+            return NotImplemented
+        return self.toordinal() > other_ordinal
+
+    def __ge__(self, other: object) -> bool:
+        """Compare values using Gregorian ordinals."""
+        other_ordinal = _comparison_ordinal(other)
+        if other_ordinal is None:
+            return NotImplemented
+        return self.toordinal() >= other_ordinal
+
+    def __str__(self) -> str:
+        """Return a human-readable representation."""
+        return f"Intermission {self.day} {self.year}"

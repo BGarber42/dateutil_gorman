@@ -1,6 +1,8 @@
-"""Constants for the Gorman calendar."""
+"""Shared constants for the public package API."""
 
-GORMAN_MONTHS = (
+from typing import Final
+
+GORMAN_MONTHS: Final[tuple[str, ...]] = (
     "March",
     "April",
     "May",

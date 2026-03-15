@@ -248,3 +248,25 @@ def test_28_gormanuary_leap() -> None:
     result = gorman_to_gregorian(2024, 13, 28)
     
     assert result == date(2024, 12, 29)  # Day 364 of 366-day year
+
+
+def test_gorman_to_gregorian_rejects_invalid_month() -> None:
+    """gorman_to_gregorian rejects month < 1 or > 13 (13×28 rule)."""
+    with pytest.raises(ValueError, match="Month must be between 1 and 13"):
+        gorman_to_gregorian(2024, 0, 1)
+    with pytest.raises(ValueError, match="Month must be between 1 and 13"):
+        gorman_to_gregorian(2024, 14, 1)
+
+
+def test_gorman_to_gregorian_rejects_invalid_day() -> None:
+    """gorman_to_gregorian rejects day < 1 or > 28 (28 days per month)."""
+    with pytest.raises(ValueError, match="Day must be between 1 and 28"):
+        gorman_to_gregorian(2024, 1, 0)
+    with pytest.raises(ValueError, match="Day must be between 1 and 28"):
+        gorman_to_gregorian(2024, 1, 29)
+
+
+def test_intermission_to_gregorian_rejects_day_2_in_non_leap_year() -> None:
+    """Intermission 2 is only valid in leap years (13×28 + one/two intermission days)."""
+    with pytest.raises(ValueError, match="Intermission day 2 is only valid in leap years"):
+        intermission_to_gregorian(2023, 2)
