@@ -8,11 +8,12 @@ from datetime import date
 
 import pytest
 
-from dateutil_gorman.conversion import gregorian_to_gorman, gorman_to_gregorian
+from dateutil_gorman.conversion import gorman_to_gregorian, gregorian_to_gorman
 from dateutil_gorman.types import Intermission
 
-
-_WIKI_TABLE_GREGORIAN_TO_GORMAN: list[tuple[tuple[int, int, int], tuple[int, int, int] | tuple[str, int]]] = [
+_WIKI_TABLE_GREGORIAN_TO_GORMAN: list[
+    tuple[tuple[int, int, int], tuple[int, int, int] | tuple[str, int]]
+] = [
     ((2024, 1, 1), (2024, 1, 1)),
     ((2024, 1, 28), (2024, 1, 28)),
     ((2024, 1, 29), (2024, 2, 1)),
@@ -33,9 +34,7 @@ _WIKI_TABLE_GREGORIAN_TO_GORMAN: list[tuple[tuple[int, int, int], tuple[int, int
 
 @pytest.mark.parametrize(
     ("gregorian_ymd", "expected_gorman"),
-    [
-        (g, e) for g, e in _WIKI_TABLE_GREGORIAN_TO_GORMAN
-    ],
+    [(g, e) for g, e in _WIKI_TABLE_GREGORIAN_TO_GORMAN],
     ids=[
         f"Gregorian {g[0]}-{g[1]:02d}-{g[2]:02d}"
         for g, _ in _WIKI_TABLE_GREGORIAN_TO_GORMAN
@@ -61,7 +60,9 @@ def test_gregorian_to_gorman_matches_wiki_table(
         assert result.day == exp_day
 
 
-_WIKI_TABLE_GORMAN_TO_GREGORIAN: list[tuple[tuple[int, int, int], tuple[int, int, int]]] = [
+_WIKI_TABLE_GORMAN_TO_GREGORIAN: list[
+    tuple[tuple[int, int, int], tuple[int, int, int]]
+] = [
     ((2024, 1, 1), (2024, 1, 1)),
     ((2024, 1, 28), (2024, 1, 28)),
     ((2024, 2, 1), (2024, 1, 29)),
@@ -79,9 +80,7 @@ _WIKI_TABLE_GORMAN_TO_GREGORIAN: list[tuple[tuple[int, int, int], tuple[int, int
 
 @pytest.mark.parametrize(
     ("gorman_ymd", "expected_gregorian_ymd"),
-    [
-        (g, e) for g, e in _WIKI_TABLE_GORMAN_TO_GREGORIAN
-    ],
+    [(g, e) for g, e in _WIKI_TABLE_GORMAN_TO_GREGORIAN],
     ids=[
         f"Gorman {g[0]} month {g[1]} day {g[2]}"
         for g, _ in _WIKI_TABLE_GORMAN_TO_GREGORIAN
